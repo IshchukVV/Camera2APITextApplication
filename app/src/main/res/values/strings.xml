@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Camera2APITextApplication</string>
+    <string name="take_picture">Capture</string>
+</resources>
