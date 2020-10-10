@@ -319,6 +319,7 @@ public class MainActivity extends AppCompatActivity {
     private int NEW_FILENAME_SD() {
         boolean check = true;
         int lastNumber = 0;
+        //возможно сюда надо поставить int i = 0;
         for (int i = 1; check; i++) {
             if (existQuestionSDFileName(i)) {
                 check = true;
