@@ -3,8 +3,11 @@ package com.example.camera2apitextapplication;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 
 import android.Manifest;
+import android.content.ClipData;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
@@ -23,6 +26,7 @@ import android.hardware.camera2.TotalCaptureResult;
 import android.hardware.camera2.params.StreamConfigurationMap;
 import android.media.Image;
 import android.media.ImageReader;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
@@ -35,6 +39,7 @@ import android.view.TextureView;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.RelativeLayout;
@@ -58,10 +63,10 @@ import java.util.Objects;
 import java.util.UUID;
 
 public class MainActivity extends AppCompatActivity {
-    private Button btnCapture, btnSave;
+    List<Cell> allFilesPaths;
+    Button btnCapture, btnSave;
     private TextureView textureView;
     final String DIR_SD = "LogisticApplication";
-    int callCounter = 0;
 
     private static final SparseIntArray ORIENTATION = new SparseIntArray();
 
@@ -81,7 +86,6 @@ public class MainActivity extends AppCompatActivity {
     private static final int REQUEST_CAMERA_PERMISSION = 200;
     private Handler mBackgroundHandler;
     private HandlerThread mBackgroundThread;
-
 
     CameraDevice.StateCallback stateCallback = new CameraDevice.StateCallback() {
         @Override
@@ -114,7 +118,7 @@ public class MainActivity extends AppCompatActivity {
         btnSave.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                deleteAllFilesAndViews();
+                deleteAllFiles();
             }
         });
         btnCapture = (Button) findViewById(R.id.btnCapture);
@@ -122,11 +126,80 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onClick(View view) {
                 takePicture();
-                createLinearLayoutWithText();
             }
         });
         createApplicationDirectory();
         deleteAllFiles();
+        load();
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        if (requestCode == REQUEST_CAMERA_PERMISSION) {
+            if (grantResults[0] != PackageManager.PERMISSION_GRANTED) {
+                Toast.makeText(this, "You have to accept permission", Toast.LENGTH_SHORT).show();
+                finish();
+            }
+        }
+
+        if (requestCode == 1000) {
+            if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                showImages();
+            } else {
+                Toast.makeText(this, "Permission not grained!", Toast.LENGTH_SHORT).show();
+                finish();
+            }
+        }
+    }
+
+    private void load() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE)
+                != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.READ_EXTERNAL_STORAGE}, 1000);
+        } else {
+            showImages();
+        }
+    }
+
+    private void showImages() {
+        String path = Environment.getExternalStorageDirectory().getAbsolutePath() + "/LogisticApplication/";
+        allFilesPaths = new ArrayList<>();
+        allFilesPaths = listAllFiles(path);
+
+        RecyclerView recyclerView = (RecyclerView) findViewById(R.id.gallery);
+        recyclerView.setHasFixedSize(true);
+        RecyclerView.LayoutManager layoutManager = new LinearLayoutManager(getApplicationContext(), RecyclerView.HORIZONTAL, false);
+        recyclerView.setLayoutManager(layoutManager);
+
+        ArrayList<Cell> cells = prepareData();
+        MyAdapter adapter = new MyAdapter(getApplicationContext(), cells);
+        recyclerView.setAdapter(adapter);
+    }
+
+    private ArrayList<Cell> prepareData() {
+        ArrayList<Cell> allImages = new ArrayList<>();
+        for (Cell c : allFilesPaths) {
+            Cell cell = new Cell();
+            cell.setTitle(c.getTitle());
+            cell.setPath(c.getPath());
+            allImages.add(cell);
+        }
+        return allImages;
+    }
+
+    private List<Cell> listAllFiles(String pathName) {
+        List<Cell> allFiles = new ArrayList<>();
+        File file = new File(pathName);
+        File[] files = file.listFiles();
+        if (files != null) {
+            for (File f : files) {
+                Cell cell = new Cell();
+                cell.setTitle(f.getName());
+                cell.setPath(f.getAbsolutePath());
+                allFiles.add(cell);
+            }
+        }
+        return allFiles;
     }
 
     private void takePicture() {
@@ -240,7 +313,7 @@ public class MainActivity extends AppCompatActivity {
                 CameraAccessException e) {
             e.printStackTrace();
         }
-
+        load();
     }
 
     private int NEW_FILENAME_SD() {
@@ -348,16 +421,6 @@ public class MainActivity extends AppCompatActivity {
     };
 
     @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
-        if (requestCode == REQUEST_CAMERA_PERMISSION) {
-            if (grantResults[0] != PackageManager.PERMISSION_GRANTED) {
-                Toast.makeText(this, "You have to accept permission", Toast.LENGTH_SHORT).show();
-                finish();
-            }
-        }
-    }
-
-    @Override
     protected void onResume() {
         super.onResume();
         startBackgroundThread();
@@ -401,20 +464,7 @@ public class MainActivity extends AppCompatActivity {
         } else {
             sdPath.mkdir();
         }
-        resetCountCall();
         Toast.makeText(MainActivity.this, "Directory cleared", Toast.LENGTH_SHORT).show();
-    }
-
-    private void deleteAllFilesAndViews() {
-        deleteAllFiles();
-        deleteAllViews();
-        Toast.makeText(MainActivity.this, "Directory cleared", Toast.LENGTH_SHORT).show();
-    }
-
-    private void deleteAllViews() {
-        LinearLayout outputLL = (LinearLayout) findViewById(R.id.outputLL);
-        outputLL.removeAllViews();
-        resetCountCall();
     }
 
     private void createApplicationDirectory() {
@@ -427,48 +477,5 @@ public class MainActivity extends AppCompatActivity {
         } else {
             sdPath.mkdir();
         }
-    }
-
-    public void createLinearLayoutWithText() {
-        final LinearLayout outputLL = (LinearLayout) findViewById(R.id.outputLL);
-
-        //создаем innerLayout внутри outputLayout
-        final RelativeLayout innerLayout = new RelativeLayout(this);
-        ViewGroup.LayoutParams linLayoutParamsInner = new RelativeLayout.LayoutParams(outputLL.getHeight(),outputLL.getHeight());
-        outputLL.addView(innerLayout, linLayoutParamsInner);
-        innerLayout.setId(countCall());
-
-        Button deleteRaw = new Button(this);
-        RelativeLayout.LayoutParams innerLinLayoutDeleteButtonParams = new RelativeLayout.LayoutParams(outputLL.getHeight()/5, outputLL.getHeight()/5);
-        innerLinLayoutDeleteButtonParams.addRule(RelativeLayout.ALIGN_RIGHT);
-        innerLinLayoutDeleteButtonParams.addRule(RelativeLayout.ALIGN_TOP);
-        innerLayout.addView(deleteRaw, innerLinLayoutDeleteButtonParams);
-        deleteRaw.setText("X");
-        deleteRaw.setTextColor(getResources().getColor(R.color.pureWhite));
-        deleteRaw.setBackgroundColor(getResources().getColor(R.color.pureBlack));
-        deleteRaw.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                outputLL.removeView(innerLayout);
-                File sdFile = new File(new File(Environment.getExternalStorageDirectory().getAbsolutePath() + "/" + DIR_SD), Integer.toString(innerLayout.getId())+".jpg");
-                sdFile.delete();
-            }
-        });
-
-        //добавляем textview
-        ImageView readText = new ImageView(this);
-        ViewGroup.LayoutParams innerLinLayoutContentParams = new RelativeLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
-        innerLayout.addView(readText, innerLinLayoutContentParams);
-
-        //прописать загрузку изображения
-    }
-
-    private int countCall() {
-        callCounter++;
-        return callCounter;
-    }
-
-    private void resetCountCall() {
-        callCounter = 0;
     }
 }
