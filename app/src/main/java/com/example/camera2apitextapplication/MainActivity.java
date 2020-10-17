@@ -7,6 +7,7 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import android.Manifest;
+import android.app.Activity;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.graphics.ImageFormat;
@@ -52,7 +53,6 @@ public class MainActivity extends AppCompatActivity {
     List<Cell> allFilesPaths;
     Button btnCapture, btnSave, btnRefresh;
     private TextureView textureView;
-    LeadImageFromCameraToGallery leadImageFromCameraToGallery;
     ProgressBar progressBar;
     String applicationStoragePath = Environment.getExternalStorageDirectory().getAbsolutePath() + "/LogisticApplication/";
     String imageFormat = ".jpeg";
@@ -86,58 +86,31 @@ public class MainActivity extends AppCompatActivity {
         assert textureView != null;
         textureView.setSurfaceTextureListener(textureListener);
         btnRefresh = (Button) findViewById(R.id.btnRefresh);
-        btnRefresh.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                load();
-            }
-        });
-
+        btnRefresh.setOnClickListener(view -> load());
         btnSave = (Button) findViewById(R.id.btnSave);
-        btnSave.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                clearApplicationDirectory();
-            }
-        });
+        btnSave.setOnClickListener(view -> clearApplicationDirectory());
         btnCapture = (Button) findViewById(R.id.btnCapture);
-        btnCapture.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                leadImageFromCameraToGallery = new LeadImageFromCameraToGallery();
-                leadImageFromCameraToGallery.execute();
-            }
-        });
+        btnCapture.setOnClickListener(view -> startCaptureImage());
         createApplicationDirectory();
         clearApplicationDirectory();
     }
 
-    //поочереди (асинхронго) сделать фото и обновить галерею
 
-    class LeadImageFromCameraToGallery extends AsyncTask<Void, Void, Void> {
-        @Override
-        protected void onPreExecute() {
-            super.onPreExecute();
-            btnCapture.setClickable(false);
-            progressBar.setVisibility(ProgressBar.VISIBLE);
-            takePicture();
-        }
+    private void startCaptureImage() {
+        btnCapture.setClickable(false);
+        progressBar.setVisibility(ProgressBar.VISIBLE);
+        takePicture();
+    }
 
-        @Override
-        protected Void doInBackground(Void... params) {
-
-            return null;
-        }
-
-        @Override
-        protected void onPostExecute(Void result) {
-            super.onPostExecute(result);
+    private void onImageCapturedAndSavedToFiles() {
+        runOnUiThread(() -> {
             btnCapture.setClickable(true);
             load();
             progressBar.setVisibility(ProgressBar.INVISIBLE);
             Toast.makeText(MainActivity.this, "Saved" + file, Toast.LENGTH_SHORT).show();
-        }
+        });
     }
+
 
     //работа с галереей
     //проверить разрешения
@@ -214,20 +187,29 @@ public class MainActivity extends AppCompatActivity {
         }
 
         @Override
-        public void onError(@NonNull CameraDevice cameraDevice, int i) {
+        public void onError(@NonNull CameraDevice camera, int i) {
             cameraDevice.close();
             cameraDevice = null;
         }
     };
+
     TextureView.SurfaceTextureListener textureListener = new TextureView.SurfaceTextureListener() {
         @Override
         public void onSurfaceTextureAvailable(@NonNull SurfaceTexture surfaceTexture, int i, int i1) {
-
+            try {
+                openCamera();
+            } catch (CameraAccessException e) {
+                e.printStackTrace();
+            }
         }
 
         @Override
         public void onSurfaceTextureSizeChanged(@NonNull SurfaceTexture surfaceTexture, int i, int i1) {
-            openCamera();
+            try {
+                openCamera();
+            } catch (CameraAccessException e) {
+                e.printStackTrace();
+            }
         }
 
         @Override
@@ -241,26 +223,21 @@ public class MainActivity extends AppCompatActivity {
         }
     };
 
-    private void openCamera() {
+    private void openCamera() throws CameraAccessException {
         CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
-        try {
-            cameraId = manager.getCameraIdList()[0];
-            CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraId);
-            StreamConfigurationMap map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
-            assert map != null;
-            imageDimensions = map.getOutputSizes(SurfaceTexture.class)[0];
-            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(this, new String[]{
-                        Manifest.permission.CAMERA,
-                        Manifest.permission.WRITE_EXTERNAL_STORAGE
-                }, REQUEST_CAMERA_PERMISSION);
-                return;
-            }
-            manager.openCamera(cameraId, stateCallback, null);
-
-        } catch (CameraAccessException e) {
-            e.printStackTrace();
+        cameraId = manager.getCameraIdList()[0];
+        CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraId);
+        StreamConfigurationMap map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+        assert map != null;
+        imageDimensions = map.getOutputSizes(SurfaceTexture.class)[0];
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, new String[]{
+                    Manifest.permission.CAMERA,
+                    Manifest.permission.WRITE_EXTERNAL_STORAGE
+            }, REQUEST_CAMERA_PERMISSION);
+            return;
         }
+        manager.openCamera(cameraId, stateCallback, null);
     }
 
     private void createCameraPreview() {
@@ -312,9 +289,13 @@ public class MainActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         startBackgroundThread();
-        if (textureView.isAvailable())
-            openCamera();
-        else
+        if (textureView.isAvailable()) {
+            try {
+                openCamera();
+            } catch (CameraAccessException e) {
+                e.printStackTrace();
+            }
+        } else
             textureView.setSurfaceTextureListener(textureListener);
     }
 
@@ -341,9 +322,7 @@ public class MainActivity extends AppCompatActivity {
         CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
         try {
             CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraDevice.getId());
-            Size[] jpegSizes = null;
-            if (characteristics != null)
-                jpegSizes = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP).getOutputSizes(ImageFormat.JPEG);
+            Size[] jpegSizes = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP).getOutputSizes(ImageFormat.JPEG);
             int width = 640;
             int height = 480;
             if (jpegSizes != null && jpegSizes.length > 0) {
@@ -368,7 +347,7 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
 
-            file = new File(applicationStoragePath, Integer.toString(NEW_FILENAME_SD()) + imageFormat);
+            file = new File(applicationStoragePath, NEW_FILENAME_SD() + imageFormat);
 
             ImageReader.OnImageAvailableListener readerListener = new ImageReader.OnImageAvailableListener() {
                 @Override
@@ -380,14 +359,13 @@ public class MainActivity extends AppCompatActivity {
                         byte[] bytes = new byte[buffer.capacity()];
                         buffer.get(bytes);
                         save(bytes);
-                    } catch (FileNotFoundException e) {
-                        e.printStackTrace();
+                        // update view only after file saved
+                        onImageCapturedAndSavedToFiles();
                     } catch (IOException e) {
                         e.printStackTrace();
                     } finally {
-                        {
-                            if (image != null)
-                                image.close();
+                        if (image != null) {
+                            image.close();
                         }
                     }
                 }
@@ -398,8 +376,9 @@ public class MainActivity extends AppCompatActivity {
                         outputStream = new FileOutputStream(file);
                         outputStream.write(bytes);
                     } finally {
-                        if (outputStream != null)
+                        if (outputStream != null) {
                             outputStream.close();
+                        }
                     }
 
                 }
@@ -408,7 +387,6 @@ public class MainActivity extends AppCompatActivity {
             final CameraCaptureSession.CaptureCallback captureListener = new CameraCaptureSession.CaptureCallback() {
                 @Override
                 public void onCaptureCompleted(@NonNull CameraCaptureSession session, @NonNull CaptureRequest request, @NonNull TotalCaptureResult result) {
-                    super.onCaptureCompleted(session, request, result);
                     createCameraPreview();
                 }
             };
@@ -427,8 +405,7 @@ public class MainActivity extends AppCompatActivity {
                 public void onConfigureFailed(@NonNull CameraCaptureSession cameraCaptureSession) {
                 }
             }, mBackgroundHandler);
-        } catch (
-                CameraAccessException e) {
+        } catch (CameraAccessException e) {
             e.printStackTrace();
         }
     }
@@ -439,9 +416,10 @@ public class MainActivity extends AppCompatActivity {
 
     private void createApplicationDirectory() {
         File imageDirectory = new File(applicationStoragePath);
-        if (imageDirectory.exists()) {
-        } else {
-            imageDirectory.mkdir();
+        if (!imageDirectory.exists()) {
+            if (!imageDirectory.mkdir()) {
+                throw new RuntimeException("Can't create application storage folder");
+            }
         }
     }
 
@@ -472,9 +450,8 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private boolean existQuestionSDFileName(int lastNumber) {
-        File file = new File(applicationStoragePath, (Integer.toString(lastNumber)) + imageFormat);
-        boolean answer = file.exists();
-        return answer;
+        File file = new File(applicationStoragePath, lastNumber + imageFormat);
+        return file.exists();
     }
 
     //разрешения
